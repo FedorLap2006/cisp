@@ -6,8 +6,8 @@ import "errors"
 import "encoding/json"
 
 import "fmt"
-import "unicode"
-import "regexp"
+// import "unicode"
+// import "regexp"
 
 
 const currentLibraryVersionMajor = 1
@@ -34,74 +34,14 @@ type Query struct {
 	Error error
 }
 
-// Parse - Parse response
-func (q *Query) Parse (source string) error {
-	protocolHeader := []byte{}
-	for _, rsym := range source {
-		sym := byte(rsym)
-		if matched, _ := regexp.Match(".* v\\d+.\\d+", []byte(protocolHeader)); len(protocolHeader) >= 30 || matched || (rsym == '\n' && len(protocolHeader) != 0) {
-			break
-		}
-		if (rsym == '\n' || rsym == '\t' || rsym == ' ' || rsym == ' ') && len(protocolHeader) == 0 {
-			continue
-		}
-		//fmt.Printf("whitespace symbol %q", rsym)
-		protocolHeader = append(protocolHeader, sym)
-	}
-	fmt.Println("protocol", string(protocolHeader))
-	libh := regexp.MustCompile("CISP v(\\d+).(\\d+)")
-	if !libh.Match(protocolHeader) || len(protocolHeader) >= 30 {
-		return errors.New("Invalid protocol header")
-	}
-	rpv := libh.FindAllSubmatch(protocolHeader, -1)
-	pv := [][]byte{}
-	if len(rpv) > 0 {
-		pv = rpv[0]
-	}
-	fmt.Println(string(pv[0]), string(pv[1]), string(pv[2]))
-	//r.ProtocolVersion = 
 
-	fields := map[string]string{}
-	currentIdent := []rune{}
-	currentFieldName := ""
-	currentFieldValue := ""
-	valuePart := false
-	for _, sym := range source {
-		if unicode.IsSpace(rune(sym)) && len(currentIdent) == 0 {
-			continue
-		}
-		if sym == ':' && !valuePart {
-			currentFieldName = string(currentIdent)
-			currentIdent = []rune{}
-			valuePart = true
-		} else if sym == '\n' {
-			currentFieldValue = string(currentIdent)
-			if valuePart {
-				fields[currentFieldName] = currentFieldValue
-			}
-			currentFieldName = ""
-			currentFieldValue = ""
-			currentIdent = []rune{}
-			valuePart = false
-			
-		} else {
-			currentIdent = append(currentIdent, sym)
-		}
+// Parse - Parses the text of a protocol message into 'Query' structure
+func (q *Query) Parse(source string) error {
+	f, err := protocolParser(source)
+	if err != nil {
+		return err
 	}
-	// sourceStrings := strings.Split(source, "\n")
-	// for _, str := range sourceStrings {
-	// 	splittedParts := strings.Split(str, ":")
-	// 	if len(splittedParts) < 2 {
-	// 		continue
-	// 	}
-	// 	fields[splittedParts[0]] = strings.Join(splittedParts[1:], ":")
-	// }
-
-	// for name, field := range fields {
-	// 	fmt.Println(name, ":||:", field)
-	// }
-	err := q.prepareFields(fields)
-	return err
+	return q.prepareFields(f)
 }
 
 func (q *Query) prepareFields(fmap map[string]string) error {
@@ -128,9 +68,14 @@ func (q *Query) prepareFields(fmap map[string]string) error {
 		delete(fmap, "Protocol-Version-Minor")
 	}
 
+	if q.ProtocolVersionMajor != currentLibraryVersionMajor || q.ProtocolVersionMinor != currentLibraryVersionMinor {
+		return errors.New("Invalid library version")
+	}
+
+
 	if qt, ok := fmap["Query-Type"]; ok {
 		switch qt {
-		case "event": case "data": case "get-data":
+		case "event", "data", "get-data":
 			q.QueryType = qt
 			break
 		default:
@@ -147,8 +92,7 @@ func (q *Query) prepareFields(fmap map[string]string) error {
 		q.RecvWorkerID = rwid
 		delete(fmap, "Recv-Worker-ID")
 	} else {
-		q.Error = errors.New("Empty 'Recv-Worker-ID' field")
-		return q.Error
+		q.RecvWorkerID = "here"
 	}
 
 	if qe, ok := fmap["Query-Entity"]; ok {
@@ -200,7 +144,44 @@ func (q *Query) prepareFields(fmap map[string]string) error {
 	}
 
 	q.AdditionalHeaders = fmap
+
 	return nil
+}
+
+func (q *Query) ToMessage() (msg string) {
+	additionalHeadersString := ""
+	for hn, hv := range q.AdditionalHeaders {
+		additionalHeadersString += hn + ": " + hv + "\n"
+	}
+
+	payloadString := []byte{}
+
+	switch q.PayloadEncoder {
+	case "json":
+		payloadString, _ = json.Marshal(q.Payload)
+		break
+	}
+
+
+	msg = fmt.Sprintf(`CISP v%d.%d
+Query-Type: %s
+Recv-Worker-ID: %s
+Query-Entity: %s
+%s
+Payload-Length: %d
+Payload-Encoder: %s
+Payload: %s
+`, 	q.ProtocolVersionMajor, 
+	q.ProtocolVersionMinor,
+	q.QueryType,
+	q.RecvWorkerID, 
+	q.QueryEntity,
+	additionalHeadersString,
+	q.PayloadLength,
+	q.PayloadEncoder,
+	payloadString)
+
+	return
 }
 
 
@@ -208,7 +189,7 @@ func TestQuery() {
 	q := Query{}
 
 	err := q.Parse(`
-	CISP v0.1
+	CISP v1.0
 	Query-Type: event
 	Payload-Length: 23
 	Recv-Worker-ID: 11232
@@ -219,8 +200,23 @@ func TestQuery() {
 	Payload: { "test": ["1", "2"] }
 	`)
 
+	
+
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+	fmt.Println("Query", q)
+
+    fmt.Println("Response", q.ToMessage())
+    fmt.Println()
+
+	err = q.Parse(q.ToMessage())
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("Query 2", q)
+	fmt.Println("Response 2", q.ToMessage())
 }
