@@ -182,8 +182,13 @@ func (q *Query) prepareFields(fmap map[string]string) error {
 	if rp, ok := fmap["Payload"]; ok {
 		switch q.PayloadEncoder {
 		case "json":
-			json.Unmarshal([]byte(rp), &q.Payload)
-			break
+			err := json.Unmarshal([]byte(rp), &q.Payload)
+			if err == nil {
+				break
+			}
+			q.Error = errors.New("json decoder error: '" + err.Error() + "'")
+			return q.Error
+			
 		default:
 			q.Error = errors.New(q.PayloadEncoder + " payload encoder not supporting")
 			return q.Error
@@ -211,9 +216,11 @@ func TestQuery() {
 
 	Payload-Length: 100
 	Payload-Encoder: json
-	Payload: { "test": true }
+	Payload: { "test": ["1", "2"] }
 	`)
 
-	fmt.Println(err)
-	fmt.Println(q)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 }
