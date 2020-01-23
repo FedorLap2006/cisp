@@ -70,7 +70,7 @@ func (q *Query) Parse (source string) error {
 		if unicode.IsSpace(rune(sym)) && len(currentIdent) == 0 {
 			continue
 		}
-		if sym == ':' {
+		if sym == ':' && !valuePart {
 			currentFieldName = string(currentIdent)
 			currentIdent = []rune{}
 			valuePart = true
@@ -97,9 +97,9 @@ func (q *Query) Parse (source string) error {
 	// 	fields[splittedParts[0]] = strings.Join(splittedParts[1:], ":")
 	// }
 
-	for name, field := range fields {
-		fmt.Println(name, ":||:", field)
-	}
+	// for name, field := range fields {
+	// 	fmt.Println(name, ":||:", field)
+	// }
 	err := q.prepareFields(fields)
 	return err
 }
@@ -190,7 +190,7 @@ func (q *Query) prepareFields(fmap map[string]string) error {
 		}
 		delete(fmap, "Payload")
 	} else {
-		q.Error = errors.New("Empty 'Payload-Encoder' field")
+		q.Error = errors.New("Empty 'Payload' field")
 		return q.Error
 	}
 
@@ -206,6 +206,12 @@ func TestQuery() {
 	CISP v0.1
 	Query-Type: event
 	Payload-Length: 23
+	Recv-Worker-ID: 11232
+	Query-Entity: test
+
+	Payload-Length: 100
+	Payload-Encoder: json
+	Payload: { "test": true }
 	`)
 
 	fmt.Println(err)
